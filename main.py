@@ -17,7 +17,11 @@ class Suggestion:
 
     @property
     def cards(self):
-        return [self.weapon, self.suspect, self.location]
+        s = set()
+        s.add(self.weapon)
+        s.add(self.suspect)
+        s.add(self.location)
+        return s
 
 
 @dataclasses.dataclass
@@ -182,21 +186,33 @@ class CluedoSolver:
     def take_turn(self, player_index: int):
         player = self.players[player_index]
         console.print(f"{player.name}s turn...")
-        if player.name == self.your_name:
-            console.print("Your turn!")
-            if Confirm.ask("Did anyone show you anything?"):
-                self.add_player_card(
-                    player_index,
-                    Prompt.ask(
-                        "Enter card shown",
-                        choices=list(self.unknown_cards),
-                    ),
-                )
-            return
         if Confirm.ask(f"Did {player.name} ask anything"):
             suspect = Prompt.ask("Enter suspect", choices=self.config.suspects)
             weapon = Prompt.ask("Enter weapon", choices=self.config.weapons)
             room = Prompt.ask("Enter room", choices=self.config.locations)
+            s = Suggestion(weapon, suspect, room)
+            answer_index = (player_index + 1) % self.num_players
+            doesnt_have = 0
+            for _ in range(self.num_players - 1):
+                player = self.players[answer_index]
+                if player.name == self.your_name:
+                    console.print("Your turn:")
+                    overlapping_cards = s.cards & player.cards
+                    if overlapping_cards:
+                        console.print("You could show one of the following cards")
+                        for card in overlapping_cards:
+                            print(card)
+
+                if not Confirm.ask(f"Did {player.name} show anything? "):
+                    # TODO implement logic here
+                    doesnt_have += 1
+
+                answer_index = (answer_index + 1) % self.num_players
+            # all players said no
+            if doesnt_have == self.num_players - 1:
+                cards = s.cards.difference(player.cards)
+                for card in cards:
+                    self.solution_possibilities[self.get_card_type(card)] = set([card])
 
         self.print_status()
 
@@ -230,7 +246,8 @@ class CluedoSolver:
             return "weapon"
         elif card in self.locations:
             return "location"
-        return None
+        else:
+            raise ValueError("Invalid card type")
 
     def print_status(self):
         console.print("\n[bold] =====Game [bold]Status=====[/]")
@@ -248,6 +265,7 @@ class CluedoSolver:
             console.print(
                 f"\n[bold green] SOLUTION: {solution['suspect']} with {solution['weapon']} in {solution['location']}[/]"
             )
+            exit()
 
     def get_solution(self):
         """Return the deduced solution (or None for unknown parts)"""
