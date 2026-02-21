@@ -260,17 +260,20 @@ class KnowledgeBase:
             # Save for later!
             self.constraints.append(Constraint(player, unknown_subset))
 
-    def record_no_one_showed(self, suggestion: Suggestion, your_player: Player):
+    def record_no_one_showed(
+        self, suggestion: Suggestion, your_player: Player, suggesting_player: Player
+    ):
         """
         Nobody showed a card for this suggestion. Any suggested card that isn't in the
         other players hand must be in the solution
         """
-        for card in suggestion.cards:
-            if card not in your_player.cards:
-                card_type = self.get_card_type(card)
-                console.print(f"[bold green]{card} must be in the solution![/]")
-                self.solution_possibilities[card_type] = {card}
-                self.unknown_cards.discard(card)
+        if suggesting_player == your_player:
+            for card in suggestion.cards:
+                if card not in your_player.cards and card in self.unknown_cards:
+                    card_type = self.get_card_type(card)
+                    console.print(f"[bold green]{card} must be in the solution![/]")
+                    self.solution_possibilities[card_type] = {card}
+                    self.unknown_cards.discard(card)
 
     def deduce(self) -> bool:
         """
@@ -510,7 +513,9 @@ class CluedoSolver:
             else:
                 self.kb.record_showed_one_of(showing_player, suggestion.cards)
         else:
-            self.kb.record_no_one_showed(suggestion, self.your_player)
+            self.kb.record_no_one_showed(
+                suggestion, self.your_player, suggesting_player
+            )
 
         self.kb.deduce()
         self._print_status()
