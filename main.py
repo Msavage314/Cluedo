@@ -18,7 +18,10 @@ console = Console(highlight=False)
 # Configuration
 # -----------------------------------------------------------------
 class CluedoConfiguration:
-    """Represents a configuration for the Cluedo game, e.g. Harry Potter or Standard"""
+    """
+    Represents a configuration for the Cluedo game, e.g. Harry Potter or Standard
+    defines lists of weapons, suspects and locations.
+    """
 
     configs = []
 
@@ -119,8 +122,11 @@ class Suggestion:
 # Players
 # -----------------------------------------------------------------
 class Player:
+    names = []
+
     def __init__(self, name: str, position: int, config: CluedoConfiguration):
         self.name = name
+        self.register_name(name)
         self.position = position
         self.config = config
         # set of cards that the player definitely does have
@@ -130,6 +136,10 @@ class Player:
 
     def __str__(self) -> str:
         return f"Summary of {self.name}\nHand: {self.cards}"
+
+    @classmethod
+    def register_name(cls, name):
+        cls.names.append(name)
 
     def add_card(self, card):
         """Attempts to add a card to the players hand. If it is not a valid card, raise ValueError"""
