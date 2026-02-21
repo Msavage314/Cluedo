@@ -300,6 +300,7 @@ class KnowledgeBase:
             changed |= self._deduce_unique_owner()
             changed |= self._deduce_solution_cards()
             changed |= self._propagate_constraints()
+            changed |= self._deduce_full_hands()
             if changed:
                 overal_changed = True
 
@@ -319,13 +320,15 @@ class KnowledgeBase:
                 self.record_has_card(possible_owners[0], card)
                 changed = True
             elif len(possible_owners) == 0:
-                # Nobody can have it
+                # Nobody can have it - must be in solution
                 card_type = self.get_card_type(card)
-                if len(self.solution_possibilities[card_type]) > 1:
-                    console.print(f"[yellow]{card} must be in the solution![/]")
-                    self.solution_possibilities[card_type] = {card}
-                    self.unknown_cards.discard(card)
-                    changed = True
+                # Only mark as solution if it's still a possibility
+                if card in self.solution_possibilities[card_type]:
+                    if len(self.solution_possibilities[card_type]) > 1:
+                        console.print(f"[yellow]{card} must be in the solution![/]")
+                        self.solution_possibilities[card_type] = {card}
+                        self.unknown_cards.discard(card)
+                        changed = True
         return changed
 
     def _deduce_solution_cards(self) -> bool:
