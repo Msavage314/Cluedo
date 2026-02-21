@@ -124,7 +124,9 @@ class Suggestion:
 class Player:
     names = []
 
-    def __init__(self, name: str, position: int, config: CluedoConfiguration):
+    def __init__(
+        self, name: str, position: int, config: CluedoConfiguration, max_cards: int
+    ):
         self.name = name
         self.register_name(name)
         self.position = position
@@ -133,6 +135,7 @@ class Player:
         self.cards = set()
         # set of cards that the player definitely does not have
         self.not_cards = set()
+        self.max_cards = max_cards
 
     def __str__(self) -> str:
         return f"Summary of {self.name}\nHand: {self.cards}"
@@ -163,6 +166,16 @@ class Player:
         return any(card in self.cards for card in suggestion.cards)
 
     def respond_to_suggestion(self, suggestion: Suggestion) -> str | None: ...
+
+    @property
+    def is_full(self) -> bool:
+        """True if this player has all their cards."""
+        return len(self.cards) == self.max_cards
+
+    @property
+    def cards_remaining(self) -> int:
+        """How many more cards this player could have."""
+        return self.max_cards - len(self.cards)
 
 
 # -----------------------------------------------------------------
@@ -360,6 +373,38 @@ class KnowledgeBase:
         self.constraints = new_constraints
         return changed
 
+    def _deduce_full_hands(self) -> bool:
+        """
+        If a player has all their cards, mark all unknown cards as not-theirs.
+        If a player needs exactly N more cards and there are exactly N unknowns they could have, they must have all N.
+        """
+        changed = False
+
+        for player in self.players:
+            if player.is_full:
+                # They can't have any more cards
+                for card in self.unknown_cards:
+                    if player.might_have_card(card):
+                        console.print(
+                            f"[yellow]{player.name}'s hand is full — can't have {card}[/]"
+                        )
+                        player.mark_not_card(card)
+                        changed = True
+            else:
+                # Count how many unknown cards they could have
+                possible = [c for c in self.unknown_cards if player.might_have_card(c)]
+                if len(possible) == player.cards_remaining:
+                    # They must have all of them
+                    console.print(
+                        f"[yellow]{player.name} needs {player.cards_remaining} more cards "
+                        f"and can only have {possible} — must have all![/]"
+                    )
+                    for card in possible:
+                        self.record_has_card(player, card)
+                        changed = True
+
+        return changed
+
     def get_unknown_cards(self) -> list[str]:
         return sorted(self.unknown_cards)
 
@@ -416,7 +461,7 @@ class CluedoSolver:
         self.config: CluedoConfiguration = STANDARD
         self.players: list[Player] = []
         self.num_players: int = 4
-        self.your_player: HumanPlayer = HumanPlayer("_", 0, self.config)
+        self.your_player: HumanPlayer = HumanPlayer("_", 0, self.config, 1)
         self.kb: KnowledgeBase = KnowledgeBase([], STANDARD)
 
     def run(self):
@@ -436,17 +481,18 @@ class CluedoSolver:
             )
         )
         console.print(f"[bold green]Selected {self.config.name} successfully[/]")
-
         self.num_players = IntPrompt.ask("Number of players", default=4)
         your_name = Prompt.ask("What is your name?")
+        cards_each = (len(self.config.cards) - 3) // self.num_players
+        bonus = (len(self.config.cards) - 3) % self.num_players
 
         for i in range(self.num_players):
             name = Prompt.ask(f"Enter player {i + 1} name")
             if name == your_name:
-                player: Player = HumanPlayer(name, i, self.config)
+                player: Player = HumanPlayer(name, i, self.config, cards_each)
                 self.your_player = player
             else:
-                player = ObservedPlayer(name, i, self.config)
+                player = ObservedPlayer(name, i, self.config, cards_each)
             self.players.append(player)
 
         if self.your_player is None:
@@ -456,27 +502,46 @@ class CluedoSolver:
             self.your_player = self.players[0]  # type:ignore[assignment]
 
         console.print(f"[bold green]Initialised {self.num_players} players![/]")
-
         self.kb = KnowledgeBase(self.players, self.config)
 
-        cards_each = int((len(self.config.cards) - 3) // self.num_players)
-        # Bonus cards left over (everyone sees)
-        bonus = int((len(self.config.cards) - 3) % self.num_players)
-        total_cards_each = cards_each + bonus
+        console.line()
+        console.print(f"[yellow]You should have {cards_each} cards in your hand.[/]")
+        if bonus > 0:
+            console.print(
+                f"[yellow]There are also {bonus} bonus cards face-up that everyone can see.[/]"
+            )
+        console.line()
 
-        console.line()
-        console.print(
-            f"[yellow]You should have {total_cards_each} cards: {cards_each} cards dealt plus {bonus} bonus cards in the middle[/]"
-        )
-        console.line()
-        for i in range(total_cards_each):
-            # Only show cards that haven't been selected yet
+        # Enter your hand
+        for i in range(cards_each):
             available_cards = [
                 c for c in self.config.cards if c not in self.your_player.cards
             ]
-            card = Prompt.ask(f"Enter card {i + 1}", choices=available_cards)
+            card = Prompt.ask(f"Enter your card {i + 1}", choices=available_cards)
             self.kb.record_has_card(self.your_player, card)
 
+        # Enter bonus cards (visible to everyone)
+        if bonus > 0:
+            console.line()
+            console.print(f"[bold yellow]Now enter the {bonus} face-up bonus cards:[/]")
+            for i in range(bonus):
+                available_cards = [
+                    c for c in self.config.cards if c not in self.your_player.cards
+                ]
+                card = Prompt.ask(f"Enter bonus card {i + 1}", choices=available_cards)
+
+                # Remove from unknowns
+                self.kb.unknown_cards.discard(card)
+
+                # Remove from solution possibilities
+                card_type = self.kb.get_card_type(card)
+                self.kb.solution_possibilities[card_type].discard(card)
+
+                # Mark all players as not having it
+                for player in self.players:
+                    player.mark_not_card(card)
+
+        console.line()
         console.print(
             f"[bold green]Setup complete! Your hand: {sorted(self.your_player.cards)}[/]"
         )
